@@ -1,4 +1,4 @@
-"""Minimal Turkish voice chat: Qwen3-Omni audio understanding + Cartesia TTS."""
+"""Minimal Turkish voice chat: Qwen3-Omni via vLLM + Cartesia TTS."""
 
 from __future__ import annotations
 
@@ -9,16 +9,13 @@ from pathlib import Path
 
 import gradio as gr
 import requests
-import torch
-from qwen_omni_utils import process_mm_info
-from transformers import Qwen3OmniMoeForConditionalGeneration, Qwen3OmniMoeProcessor
 
 
 MODEL_ID = os.getenv("MODEL_ID", "Qwen/Qwen3-Omni-30B-A3B-Instruct")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "7860"))
-ATTENTION = os.getenv("ATTN_IMPLEMENTATION", "sdpa")
-MAX_HISTORY_TURNS = max(1, int(os.getenv("MAX_HISTORY_TURNS", "6")))
+VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
+MAX_HISTORY_TURNS = max(1, int(os.getenv("MAX_HISTORY_TURNS", "4")))
 
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", "")
 CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "")
@@ -37,88 +34,47 @@ OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/tmp/qwen3-voice-outputs"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_model():
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA GPU bulunamadı. GPU etkin bir RunPod Pod kullanın.")
-
-    options = {
-        "dtype": torch.bfloat16,
-        "device_map": "auto",
-        "low_cpu_mem_usage": True,
-        "attn_implementation": ATTENTION,
+def user_audio_message(audio_path: str) -> dict:
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "audio_url",
+                "audio_url": {"url": Path(audio_path).resolve().as_uri()},
+            },
+            {
+                "type": "text",
+                "text": "Bu sesli mesaja kısa ve doğal bir Türkçe cevap ver.",
+            },
+        ],
     }
-    try:
-        loaded_model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
-            MODEL_ID, **options
-        )
-    except (ImportError, RuntimeError) as exc:
-        if ATTENTION != "flash_attention_2" or "flash" not in str(exc).lower():
-            raise
-        print(f"FlashAttention 2 kullanılamıyor ({exc}); SDPA kullanılacak.")
-        options["attn_implementation"] = "sdpa"
-        loaded_model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
-            MODEL_ID, **options
-        )
-
-    # Cartesia speaks the response, so Qwen's talker is unnecessary.
-    loaded_model.disable_talker()
-    loaded_model.eval()
-    loaded_processor = Qwen3OmniMoeProcessor.from_pretrained(MODEL_ID)
-    print("Model hazır.", flush=True)
-    return loaded_model, loaded_processor
 
 
-def generate_reply(audio_path: str, history: list[dict]) -> str:
-    messages = [
-        {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
-        *history,
-        {
-            "role": "user",
-            "content": [
-                {"type": "audio", "audio": audio_path},
-                {
-                    "type": "text",
-                    "text": "Bu sesli mesaja kısa ve doğal bir Türkçe cevap ver.",
-                },
-            ],
-        },
-    ]
-    rendered = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-    audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
-    inputs = processor(
-        text=rendered,
-        audio=audios,
-        images=images,
-        videos=videos,
-        return_tensors="pt",
-        padding=True,
-        use_audio_in_video=False,
-    )
-    inputs = inputs.to(model.device).to(model.dtype)
-
+def generate_reply(audio_path: str, history: list[dict]) -> tuple[str, dict]:
+    current_message = user_audio_message(audio_path)
     started_at = time.perf_counter()
-    with torch.inference_mode():
-        text_ids, _ = model.generate(
-            **inputs,
-            return_audio=False,
-            thinker_return_dict_in_generate=True,
-            thinker_max_new_tokens=64,
-            # Sampling can produce invalid probabilities with an automatically
-            # sharded Qwen model. Greedy decoding avoids the CUDA assertion and
-            # is stable enough for this minimal conversation test.
-            thinker_do_sample=False,
-            use_audio_in_video=False,
-        )
+    response = requests.post(
+        f"{VLLM_URL}/v1/chat/completions",
+        json={
+            "model": MODEL_ID,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                *history,
+                current_message,
+            ],
+            "modalities": ["text"],
+            "max_tokens": 64,
+            "temperature": 0,
+        },
+        timeout=(10, 180),
+    )
+    response.raise_for_status()
+    data = response.json()
+    answer = data["choices"][0]["message"]["content"].strip()
+    if not answer:
+        raise RuntimeError("Qwen boş bir yanıt döndürdü.")
     print(f"Qwen süresi: {time.perf_counter() - started_at:.1f}s", flush=True)
-
-    generated = text_ids.sequences[:, inputs["input_ids"].shape[1] :]
-    return processor.batch_decode(
-        generated,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    )[0].strip()
+    return answer, current_message
 
 
 def speak_with_cartesia(text: str) -> str:
@@ -167,26 +123,23 @@ def talk(
 
     history = list(model_history or [])
     try:
-        answer = generate_reply(audio_path, history)
+        answer, current_message = generate_reply(audio_path, history)
+    except requests.RequestException as exc:
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        raise gr.Error(f"Qwen isteği başarısız oldu: {detail}") from exc
+    except (KeyError, IndexError, RuntimeError, ValueError) as exc:
+        raise gr.Error(f"Qwen yanıtı işlenemedi: {exc}") from exc
+
+    try:
         answer_audio = speak_with_cartesia(answer)
     except requests.RequestException as exc:
         detail = exc.response.text[:300] if exc.response is not None else str(exc)
         raise gr.Error(f"Cartesia isteği başarısız oldu: {detail}") from exc
 
-    # Keep the original audio in Qwen's recent context and the assistant's text response.
     history.extend(
         [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "audio", "audio": audio_path},
-                    {
-                        "type": "text",
-                        "text": "Bu sesli mesaja kısa ve doğal bir Türkçe cevap ver.",
-                    },
-                ],
-            },
-            {"role": "assistant", "content": [{"type": "text", "text": answer}]},
+            current_message,
+            {"role": "assistant", "content": answer},
         ]
     )
     history = history[-(MAX_HISTORY_TURNS * 2) :]
@@ -204,8 +157,6 @@ def talk(
 def reset():
     return None, [], None, [], []
 
-
-model, processor = load_model()
 
 with gr.Blocks(title="Türkçe Qwen3 Sesli Sohbet") as demo:
     gr.Markdown("# Türkçe Sesli Sohbet\nMikrofona konuşun ve **Gönder** düğmesine basın.")
@@ -231,6 +182,7 @@ with gr.Blocks(title="Türkçe Qwen3 Sesli Sohbet") as demo:
 
 
 if __name__ == "__main__":
+    print("Arayüz hazır.", flush=True)
     demo.queue(default_concurrency_limit=1, max_size=8).launch(
         server_name=HOST,
         server_port=PORT,
