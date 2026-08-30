@@ -1,0 +1,6 @@
+transformers>=5.2.0,<6
+accelerate>=1.10.0
+qwen-omni-utils>=0.0.9
+gradio==5.44.1
+gradio-client==1.12.1
+requests>=2.32.0,<3
