@@ -29,6 +29,8 @@ fi
   --dtype bfloat16 \
   --tensor-parallel-size 2 \
   --distributed-executor-backend mp \
+  --disable-custom-all-reduce \
+  --enforce-eager \
   --max-model-len 8192 \
   --max-num-seqs 1 \
   --gpu-memory-utilization 0.92 \
