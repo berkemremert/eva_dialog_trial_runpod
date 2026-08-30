@@ -2,6 +2,9 @@ FROM qwenllm/qwen3-omni:3-cu124
 
 WORKDIR /app
 COPY requirements.txt ./
+RUN python -m pip install --no-cache-dir --upgrade \
+    --index-url https://download.pytorch.org/whl/cu124 \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
 RUN python -m pip install --no-cache-dir --upgrade -r requirements.txt
 COPY app.py ./
 
