@@ -16,7 +16,7 @@ from transformers import Qwen3OmniMoeForConditionalGeneration, Qwen3OmniMoeProce
 MODEL_ID = os.getenv("MODEL_ID", "Qwen/Qwen3-Omni-30B-A3B-Instruct")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "7860"))
-ATTENTION = os.getenv("ATTN_IMPLEMENTATION", "flash_attention_2")
+ATTENTION = os.getenv("ATTN_IMPLEMENTATION", "sdpa")
 MAX_HISTORY_TURNS = max(1, int(os.getenv("MAX_HISTORY_TURNS", "6")))
 
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", "")
@@ -94,10 +94,10 @@ def generate_reply(audio_path: str, history: list[dict]) -> str:
             return_audio=False,
             thinker_return_dict_in_generate=True,
             thinker_max_new_tokens=256,
-            thinker_do_sample=True,
-            thinker_temperature=0.6,
-            thinker_top_p=0.9,
-            thinker_top_k=20,
+            # Sampling can produce invalid probabilities with an automatically
+            # sharded Qwen model. Greedy decoding avoids the CUDA assertion and
+            # is stable enough for this minimal conversation test.
+            thinker_do_sample=False,
             use_audio_in_video=False,
         )
 
