@@ -35,7 +35,9 @@ export CARTESIA_VOICE_ID="your-turkish-voice-id"
 bash start.sh
 ```
 
-The first start installs the pinned vLLM runtime and downloads the model. When `Qwen hazır` and `Arayüz hazır` appear,
+The first start installs the pinned vLLM runtime in an isolated environment under
+`/workspace/.venvs` and downloads the model. This avoids dependency conflicts with the Gradio UI.
+When `Qwen hazır` and `Arayüz hazır` appear,
 open port 7860 from RunPod's
 Connect page. The model cache defaults to `/workspace/huggingface`, so it survives Pod restarts when
 that directory is backed by persistent storage.

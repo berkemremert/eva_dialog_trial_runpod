@@ -6,15 +6,29 @@ export PORT="${PORT:-7860}"
 export VLLM_PORT="${VLLM_PORT:-8000}"
 export VLLM_URL="${VLLM_URL:-http://127.0.0.1:${VLLM_PORT}}"
 export MODEL_ID="${MODEL_ID:-Qwen/Qwen3-Omni-30B-A3B-Instruct}"
+VLLM_ENV="${VLLM_ENV:-/workspace/.venvs/qwen3-vllm-0.12.0}"
 
 mkdir -p "$HF_HOME"
 python -m pip install --upgrade -r requirements.txt
 
-vllm serve "$MODEL_ID" \
+# vLLM and Gradio require incompatible Pydantic/Hugging Face Hub versions.
+# Keep the GPU server isolated; its environment persists across Pod restarts.
+if [[ ! -x "$VLLM_ENV/bin/python" ]]; then
+  python -m venv "$VLLM_ENV"
+fi
+if ! "$VLLM_ENV/bin/python" -c \
+  'import importlib.metadata as m; assert m.version("vllm") == "0.12.0"' \
+  2>/dev/null; then
+  "$VLLM_ENV/bin/python" -m pip install --upgrade pip
+  "$VLLM_ENV/bin/python" -m pip install --no-cache-dir -r requirements-vllm.txt
+fi
+
+"$VLLM_ENV/bin/vllm" serve "$MODEL_ID" \
   --host 127.0.0.1 \
   --port "$VLLM_PORT" \
   --dtype bfloat16 \
   --tensor-parallel-size 2 \
+  --distributed-executor-backend mp \
   --max-model-len 8192 \
   --max-num-seqs 1 \
   --gpu-memory-utilization 0.92 \
