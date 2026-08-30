@@ -158,11 +158,11 @@ def reset():
     return None, [], None, [], []
 
 
-with gr.Blocks(title="Türkçe Qwen3 Sesli Sohbet") as demo:
+with gr.Blocks(title="Türkçe Qwen3 Sesli Sohbet", theme=gr.themes.Soft()) as demo:
     gr.Markdown("# Türkçe Sesli Sohbet\nMikrofona konuşun ve **Gönder** düğmesine basın.")
     model_history_state = gr.State([])
     display_history_state = gr.State([])
-    chatbot = gr.Chatbot(label="Konuşma", height=520)
+    chatbot = gr.Chatbot(label="Konuşma", height=520, type="messages")
     microphone = gr.Audio(label="Mikrofon", sources=["microphone"], type="filepath")
     with gr.Row():
         send_button = gr.Button("Gönder", variant="primary")
@@ -186,7 +186,6 @@ if __name__ == "__main__":
     demo.queue(default_concurrency_limit=1, max_size=8).launch(
         server_name=HOST,
         server_port=PORT,
-        theme=gr.themes.Soft(),
         allowed_paths=[str(OUTPUT_DIR)],
         show_error=True,
     )
