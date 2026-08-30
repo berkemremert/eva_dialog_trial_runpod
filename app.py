@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import gradio as gr
@@ -63,7 +64,7 @@ def load_model():
     loaded_model.disable_talker()
     loaded_model.eval()
     loaded_processor = Qwen3OmniMoeProcessor.from_pretrained(MODEL_ID)
-    print("Model hazır.")
+    print("Model hazır.", flush=True)
     return loaded_model, loaded_processor
 
 
@@ -71,7 +72,16 @@ def generate_reply(audio_path: str, history: list[dict]) -> str:
     messages = [
         {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
         *history,
-        {"role": "user", "content": [{"type": "audio", "audio": audio_path}]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "audio", "audio": audio_path},
+                {
+                    "type": "text",
+                    "text": "Bu sesli mesaja kısa ve doğal bir Türkçe cevap ver.",
+                },
+            ],
+        },
     ]
     rendered = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
@@ -88,18 +98,20 @@ def generate_reply(audio_path: str, history: list[dict]) -> str:
     )
     inputs = inputs.to(model.device).to(model.dtype)
 
+    started_at = time.perf_counter()
     with torch.inference_mode():
         text_ids, _ = model.generate(
             **inputs,
             return_audio=False,
             thinker_return_dict_in_generate=True,
-            thinker_max_new_tokens=256,
+            thinker_max_new_tokens=64,
             # Sampling can produce invalid probabilities with an automatically
             # sharded Qwen model. Greedy decoding avoids the CUDA assertion and
             # is stable enough for this minimal conversation test.
             thinker_do_sample=False,
             use_audio_in_video=False,
         )
+    print(f"Qwen süresi: {time.perf_counter() - started_at:.1f}s", flush=True)
 
     generated = text_ids.sequences[:, inputs["input_ids"].shape[1] :]
     return processor.batch_decode(
@@ -110,6 +122,7 @@ def generate_reply(audio_path: str, history: list[dict]) -> str:
 
 
 def speak_with_cartesia(text: str) -> str:
+    started_at = time.perf_counter()
     response = requests.post(
         "https://api.cartesia.ai/tts/bytes",
         headers={
@@ -131,6 +144,7 @@ def speak_with_cartesia(text: str) -> str:
         timeout=(10, 120),
     )
     response.raise_for_status()
+    print(f"Cartesia süresi: {time.perf_counter() - started_at:.1f}s", flush=True)
 
     with tempfile.NamedTemporaryFile(
         prefix="cevap-", suffix=".wav", dir=OUTPUT_DIR, delete=False
@@ -162,7 +176,16 @@ def talk(
     # Keep the original audio in Qwen's recent context and the assistant's text response.
     history.extend(
         [
-            {"role": "user", "content": [{"type": "audio", "audio": audio_path}]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "audio", "audio": audio_path},
+                    {
+                        "type": "text",
+                        "text": "Bu sesli mesaja kısa ve doğal bir Türkçe cevap ver.",
+                    },
+                ],
+            },
             {"role": "assistant", "content": [{"type": "text", "text": answer}]},
         ]
     )
