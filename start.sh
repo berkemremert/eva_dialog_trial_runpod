@@ -23,49 +23,56 @@ if ! "$VLLM_ENV/bin/python" -c \
   "$VLLM_ENV/bin/python" -m pip install --no-cache-dir -r requirements-vllm.txt
 fi
 
-"$VLLM_ENV/bin/vllm" serve "$MODEL_ID" \
-  --host 127.0.0.1 \
-  --port "$VLLM_PORT" \
-  --dtype bfloat16 \
-  --tensor-parallel-size 2 \
-  --distributed-executor-backend mp \
-  --disable-custom-all-reduce \
-  --enforce-eager \
-  --max-model-len 8192 \
-  --max-num-seqs 1 \
-  --gpu-memory-utilization 0.92 \
-  --allowed-local-media-path / \
-  --limit-mm-per-prompt '{"audio": 8}' \
-  > /workspace/qwen3-vllm.log 2>&1 &
-VLLM_PID=$!
+if curl --silent --fail "$VLLM_URL/health" >/dev/null 2>&1; then
+  echo "Çalışan Qwen sunucusu yeniden kullanılıyor."
+else
+  nohup "$VLLM_ENV/bin/vllm" serve "$MODEL_ID" \
+    --host 127.0.0.1 \
+    --port "$VLLM_PORT" \
+    --dtype bfloat16 \
+    --tensor-parallel-size 2 \
+    --distributed-executor-backend mp \
+    --disable-custom-all-reduce \
+    --enforce-eager \
+    --max-model-len 8192 \
+    --max-num-seqs 1 \
+    --gpu-memory-utilization 0.92 \
+    --allowed-local-media-path / \
+    --limit-mm-per-prompt '{"audio": 8}' \
+    > /workspace/qwen3-vllm.log 2>&1 &
+  VLLM_PID=$!
 
-cleanup() {
-  kill "$VLLM_PID" 2>/dev/null || true
-  wait "$VLLM_PID" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
+  cleanup_failed_start() {
+    kill "$VLLM_PID" 2>/dev/null || true
+    wait "$VLLM_PID" 2>/dev/null || true
+  }
+  trap cleanup_failed_start EXIT INT TERM
 
-echo "Qwen vLLM başlatılıyor. İlk açılış birkaç dakika sürebilir..."
-for attempt in $(seq 1 240); do
-  if curl --silent --fail "$VLLM_URL/health" >/dev/null; then
-    echo "Qwen hazır."
-    break
-  fi
-  if ! kill -0 "$VLLM_PID" 2>/dev/null; then
-    echo "vLLM başlatılamadı. Son loglar:"
+  echo "Qwen vLLM başlatılıyor. İlk açılış birkaç dakika sürebilir..."
+  for attempt in $(seq 1 240); do
+    if curl --silent --fail "$VLLM_URL/health" >/dev/null; then
+      echo "Qwen hazır."
+      break
+    fi
+    if ! kill -0 "$VLLM_PID" 2>/dev/null; then
+      echo "vLLM başlatılamadı. Son loglar:"
+      tail -n 100 /workspace/qwen3-vllm.log
+      exit 1
+    fi
+    if (( attempt % 6 == 0 )); then
+      echo "Qwen hâlâ yükleniyor..."
+    fi
+    sleep 5
+  done
+
+  if ! curl --silent --fail "$VLLM_URL/health" >/dev/null; then
+    echo "vLLM zaman aşımına uğradı. Son loglar:"
     tail -n 100 /workspace/qwen3-vllm.log
     exit 1
   fi
-  if (( attempt % 6 == 0 )); then
-    echo "Qwen hâlâ yükleniyor..."
-  fi
-  sleep 5
-done
 
-if ! curl --silent --fail "$VLLM_URL/health" >/dev/null; then
-  echo "vLLM zaman aşımına uğradı. Son loglar:"
-  tail -n 100 /workspace/qwen3-vllm.log
-  exit 1
+  # Once healthy, keep vLLM alive if only the UI exits or is restarted.
+  trap - EXIT INT TERM
 fi
 
 python app.py

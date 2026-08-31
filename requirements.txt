@@ -1,2 +1,4 @@
-gradio==6.26.0
+gradio==5.44.1
+fastrtc[vad]==0.0.34
+numpy>=1.26,<3
 requests>=2.32.0,<3

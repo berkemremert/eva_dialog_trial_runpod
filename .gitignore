@@ -2,5 +2,6 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+:memory:.ses
 huggingface/
 outputs/
