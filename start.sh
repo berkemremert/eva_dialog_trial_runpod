@@ -58,14 +58,11 @@ else
     --port "$VLLM_PORT" \
     --dtype bfloat16 \
     --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
-    --distributed-executor-backend mp \
-    --disable-custom-all-reduce \
-    --enforce-eager \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-seqs 1 \
     --gpu-memory-utilization 0.92 \
     --allowed-local-media-path / \
-    --limit-mm-per-prompt '{"audio": 8}' \
+    --limit-mm-per-prompt '{"audio": 1}' \
     </dev/null > /workspace/qwen3-vllm.log 2>&1 &
   VLLM_PID=$!
 

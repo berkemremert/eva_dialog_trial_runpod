@@ -56,6 +56,7 @@ Never commit your Cartesia key to the repository.
 | `TENSOR_PARALLEL_SIZE` | `1` | Number of GPUs used by vLLM |
 | `MAX_MODEL_LEN` | `4096` | Maximum conversation context length |
 | `MAX_HISTORY_TURNS` | `4` | Recent voice turns retained for Qwen |
+| `MAX_RESPONSE_TOKENS` | `96` | Token budget shared by transcript and short answer |
 | `SYSTEM_PROMPT` | built-in Turkish prompt | Assistant persona and behavior |
 | `HF_HOME` | `/workspace/huggingface` | Model cache when using `start.sh` |
 | `PORT` | `7860` | Web interface port |
@@ -64,11 +65,11 @@ Never commit your Cartesia key to the repository.
 | `TURN_PROVIDER` | `openrelay` | `openrelay` for testing or `cloudflare` for production |
 | `CLOUDFLARE_TURN_KEY_ID` | required for `cloudflare` | Cloudflare TURN key ID |
 | `CLOUDFLARE_TURN_KEY_API_TOKEN` | required for `cloudflare` | Cloudflare TURN key secret |
-| `VAD_CHUNK_SECONDS` | `0.6` | Amount of recent audio considered for turn detection |
+| `VAD_CHUNK_SECONDS` | `0.4` | Amount of recent audio considered for turn detection |
 | `VAD_START_SECONDS` | `0.15` | Speech required to treat input as a real interruption |
 | `VAD_STOP_SECONDS` | `0.10` | Maximum speech in a chunk before it counts as a pause |
 | `VAD_THRESHOLD` | `0.5` | Silero speech confidence threshold |
-| `VAD_MIN_SILENCE_MS` | `500` | Silence used to mark the end of a turn |
+| `VAD_MIN_SILENCE_MS` | `350` | Silence used to mark the end of a turn |
 
 ## What was intentionally removed
 
@@ -79,8 +80,9 @@ Never commit your Cartesia key to the repository.
 - Voice and sampling controls in the UI
 - Long-lived or unlimited conversation history
 
-The remaining interface is a continuous WebRTC call with automatic turn detection, interruptible
-streaming speech, and a short conversation transcript.
+The remaining interface is a continuous WebRTC call with automatic turn detection, selectable
+outbound-call roles, interruptible streaming speech, and a short conversation transcript. Previous
+turns are retained as text instead of resending old audio to the multimodal encoder.
 
 ## Realtime behavior
 
