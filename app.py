@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import os
 import tempfile
 import threading
@@ -21,6 +24,7 @@ from fastrtc import (
     ReplyOnPause,
     SileroVadOptions,
     Stream,
+    get_cloudflare_turn_credentials,
     get_cloudflare_turn_credentials_async,
     get_current_context,
 )
@@ -31,6 +35,7 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "7860"))
 VLLM_URL = os.getenv("VLLM_URL", "http://127.0.0.1:8000")
 MAX_HISTORY_TURNS = max(1, int(os.getenv("MAX_HISTORY_TURNS", "4")))
+TURN_PROVIDER = os.getenv("TURN_PROVIDER", "openrelay").strip().lower()
 
 CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", "")
 CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "")
@@ -241,20 +246,64 @@ def respond(audio: tuple[int, np.ndarray]):
     yield from stream_cartesia(answer)
 
 
-has_turn_credentials = bool(
-    os.getenv("HF_TOKEN")
-    or (
-        os.getenv("CLOUDFLARE_TURN_KEY_ID")
-        and os.getenv("CLOUDFLARE_TURN_KEY_API_TOKEN")
-    )
-)
+def openrelay_rtc_configuration(ttl: int = 3600) -> dict:
+    """Create temporary credentials for Metered's public static-auth test relay."""
+    username = f"{int(time.time()) + ttl}:qwen3-runpod"
+    credential = base64.b64encode(
+        hmac.new(
+            b"openrelayprojectsecret",
+            username.encode("utf-8"),
+            hashlib.sha1,
+        ).digest()
+    ).decode("ascii")
+    return {
+        "iceServers": [
+            {"urls": ["stun:stun.cloudflare.com:3478"]},
+            {
+                "urls": [
+                    "turn:staticauth.openrelay.metered.ca:80?transport=udp",
+                    "turn:staticauth.openrelay.metered.ca:80?transport=tcp",
+                    "turns:staticauth.openrelay.metered.ca:443?transport=tcp",
+                ],
+                "username": username,
+                "credential": credential,
+            },
+        ]
+    }
+
+
+def cloudflare_turn_kwargs() -> dict:
+    key_id = os.getenv("CLOUDFLARE_TURN_KEY_ID", "").strip()
+    api_token = os.getenv("CLOUDFLARE_TURN_KEY_API_TOKEN", "").strip()
+    if not key_id or not api_token:
+        raise RuntimeError(
+            "TURN_PROVIDER=cloudflare için CLOUDFLARE_TURN_KEY_ID ve "
+            "CLOUDFLARE_TURN_KEY_API_TOKEN gerekli."
+        )
+    # hf_token is deliberately blank: turn.fastrtc.org currently has no DNS.
+    return {
+        "turn_key_id": key_id,
+        "turn_key_api_token": api_token,
+        "hf_token": "",
+    }
 
 
 async def logged_turn_credentials():
-    """Expose the complete TURN failure in the Pod log instead of only the UI toast."""
-    print("TURN kimlik bilgileri isteniyor: https://turn.fastrtc.org/credentials", flush=True)
+    """Return client TURN configuration and log complete connection failures."""
     try:
-        credentials = await get_cloudflare_turn_credentials_async()
+        if TURN_PROVIDER == "openrelay":
+            print("TURN sağlayıcısı: Metered Open Relay (test)", flush=True)
+            credentials = openrelay_rtc_configuration()
+        elif TURN_PROVIDER == "cloudflare":
+            print("TURN sağlayıcısı: doğrudan Cloudflare", flush=True)
+            credentials = await get_cloudflare_turn_credentials_async(
+                **cloudflare_turn_kwargs(), ttl=3600
+            )
+        else:
+            raise RuntimeError(
+                f"Bilinmeyen TURN_PROVIDER={TURN_PROVIDER!r}; "
+                "openrelay veya cloudflare kullanın."
+            )
     except Exception:
         print("TURN kimlik bilgileri alınamadı. Tam hata:", flush=True)
         traceback.print_exc()
@@ -263,9 +312,20 @@ async def logged_turn_credentials():
     return credentials
 
 
-rtc_configuration = (
-    logged_turn_credentials if has_turn_credentials else None
-)
+def server_turn_configuration() -> dict:
+    if TURN_PROVIDER == "openrelay":
+        return openrelay_rtc_configuration(ttl=86_400)
+    if TURN_PROVIDER == "cloudflare":
+        return get_cloudflare_turn_credentials(
+            **cloudflare_turn_kwargs(), ttl=86_400
+        )
+    raise RuntimeError(
+        f"Bilinmeyen TURN_PROVIDER={TURN_PROVIDER!r}; openrelay veya cloudflare kullanın."
+    )
+
+
+rtc_configuration = logged_turn_credentials
+server_rtc_configuration = server_turn_configuration()
 
 chatbot = gr.Chatbot(label="Konuşma", type="messages", height=420)
 voice_stream = Stream(
@@ -287,6 +347,7 @@ voice_stream = Stream(
     modality="audio",
     mode="send-receive",
     rtc_configuration=rtc_configuration,
+    server_rtc_configuration=server_rtc_configuration,
     concurrency_limit=1,
     additional_outputs=[chatbot],
     additional_outputs_handler=lambda _old, new: new,
@@ -301,11 +362,7 @@ voice_stream = Stream(
 
 
 if __name__ == "__main__":
-    if not has_turn_credentials:
-        print(
-            "TURN yapılandırılmadı. RunPod'da bağlantı kurulmazsa HF_TOKEN ayarlayın.",
-            flush=True,
-        )
+    print(f"TURN yapılandırıldı: {TURN_PROVIDER}", flush=True)
     print("Realtime arayüz hazır.", flush=True)
     voice_stream.ui.launch(
         server_name=HOST,

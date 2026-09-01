@@ -8,9 +8,32 @@ export VLLM_URL="${VLLM_URL:-http://127.0.0.1:${VLLM_PORT}}"
 export MODEL_ID="${MODEL_ID:-Qwen/Qwen3-Omni-30B-A3B-Instruct}"
 export TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 export MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
+export TURN_PROVIDER="${TURN_PROVIDER:-openrelay}"
 VLLM_ENV="${VLLM_ENV:-/workspace/.venvs/qwen3-vllm-0.12.0}"
 
 mkdir -p "$HF_HOME"
+
+# Catch TURN DNS failures before loading the expensive model into GPU memory.
+case "$TURN_PROVIDER" in
+  openrelay)
+    TURN_HOSTS=("staticauth.openrelay.metered.ca" "stun.cloudflare.com")
+    ;;
+  cloudflare)
+    TURN_HOSTS=("rtc.live.cloudflare.com" "turn.cloudflare.com")
+    ;;
+  *)
+    echo "Geçersiz TURN_PROVIDER: $TURN_PROVIDER (openrelay veya cloudflare kullanın)."
+    exit 1
+    ;;
+esac
+for turn_host in "${TURN_HOSTS[@]}"; do
+  if ! python -c 'import socket, sys; socket.getaddrinfo(sys.argv[1], 443)' "$turn_host"; then
+    echo "TURN adresi çözümlenemiyor: $turn_host"
+    echo "Pod'u başlatmadan önce ağ/DNS bağlantısını düzeltin."
+    exit 1
+  fi
+done
+
 python -m pip install --upgrade -r requirements.txt
 
 # vLLM and Gradio require incompatible Pydantic/Hugging Face Hub versions.

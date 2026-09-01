@@ -6,7 +6,7 @@ A realtime voice-conversation prototype:
 Microphone -> Qwen3-Omni audio understanding -> Cartesia Turkish TTS -> Speaker
 ```
 
-Qwen3-Omni consumes Turkish audio directly through a two-GPU vLLM tensor-parallel server and writes
+Qwen3-Omni consumes Turkish audio directly through a vLLM server and writes
 the response. Cartesia is used only to stream that response as Turkish speech. FastRTC and Silero
 VAD keep the microphone open, detect when the user has finished speaking, and stop the current
 response when the user starts talking again.
@@ -16,7 +16,7 @@ response when the user starts talking again.
 Create a GPU Pod with:
 
 - Container image: RunPod PyTorch 2.4 / CUDA 12.4
-- Two A40 48 GB GPUs (96 GB total VRAM)
+- One A100 SXM 80 GB GPU
 - At least 120 GB of persistent storage
 - HTTP port `7860` exposed
 
@@ -29,7 +29,7 @@ cd qwen3-voice
 
 export CARTESIA_API_KEY="sk_car_..."
 export CARTESIA_VOICE_ID="your-turkish-voice-id"
-# Recommended on RunPod so WebRTC can traverse its firewall/NAT:
+# Optional: improves Hugging Face model-download rate limits only.
 export HF_TOKEN="hf_..."
 bash start.sh
 ```
@@ -60,7 +60,10 @@ Never commit your Cartesia key to the repository.
 | `HF_HOME` | `/workspace/huggingface` | Model cache when using `start.sh` |
 | `PORT` | `7860` | Web interface port |
 | `VLLM_PORT` | `8000` | Internal-only Qwen API port |
-| `HF_TOKEN` | optional but recommended on RunPod | Gets short-lived Cloudflare TURN credentials for WebRTC |
+| `HF_TOKEN` | optional | Improves Hugging Face model-download rate limits |
+| `TURN_PROVIDER` | `openrelay` | `openrelay` for testing or `cloudflare` for production |
+| `CLOUDFLARE_TURN_KEY_ID` | required for `cloudflare` | Cloudflare TURN key ID |
+| `CLOUDFLARE_TURN_KEY_API_TOKEN` | required for `cloudflare` | Cloudflare TURN key secret |
 | `VAD_CHUNK_SECONDS` | `0.6` | Amount of recent audio considered for turn detection |
 | `VAD_START_SECONDS` | `0.15` | Speech required to treat input as a real interruption |
 | `VAD_STOP_SECONDS` | `0.10` | Maximum speech in a chunk before it counts as a pause |
@@ -88,5 +91,7 @@ streaming speech, and a short conversation transcript.
 5. Speaking during playback cancels the current audio generator and starts a new turn.
 
 Headphones give the most reliable interruption behavior because loudspeaker echo can otherwise be
-mistaken for the user speaking. If the WebRTC session does not connect through the RunPod proxy,
-set `HF_TOKEN`; FastRTC uses it only to obtain temporary TURN relay credentials.
+mistaken for the user speaking. The default Metered Open Relay configuration is intended only for
+prototype testing. For production, create a Cloudflare TURN key, set both Cloudflare variables,
+and set `TURN_PROVIDER=cloudflare`. The obsolete Hugging Face/FastRTC relay is intentionally not
+used because its `turn.fastrtc.org` hostname currently fails DNS resolution.
