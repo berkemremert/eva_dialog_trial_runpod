@@ -475,7 +475,16 @@ def prepare_conversation(
     return selected, config
 
 
-def startup(persona: str = DEFAULT_PERSONA):
+def startup(*args):
+    # FastRTC prepends its connection input before Gradio additional inputs.
+    persona = next(
+        (
+            value
+            for value in reversed(args)
+            if isinstance(value, str) and value in PERSONAS
+        ),
+        DEFAULT_PERSONA,
+    )
     if not CARTESIA_API_KEY or not CARTESIA_VOICE_ID:
         raise RuntimeError(
             "CARTESIA_API_KEY ve CARTESIA_VOICE_ID ortam değişkenlerini ayarlayın."
@@ -488,7 +497,15 @@ def startup(persona: str = DEFAULT_PERSONA):
     yield from stream_cartesia(opening)
 
 
-def respond(audio: tuple[int, np.ndarray], persona: str = DEFAULT_PERSONA):
+def respond(audio: tuple[int, np.ndarray], *args):
+    persona = next(
+        (
+            value
+            for value in reversed(args)
+            if isinstance(value, str) and value in PERSONAS
+        ),
+        DEFAULT_PERSONA,
+    )
     if not CARTESIA_API_KEY or not CARTESIA_VOICE_ID:
         raise RuntimeError(
             "CARTESIA_API_KEY ve CARTESIA_VOICE_ID ortam değişkenlerini ayarlayın."
