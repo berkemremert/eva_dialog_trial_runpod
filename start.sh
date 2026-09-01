@@ -28,7 +28,9 @@ fi
 if curl --silent --fail "$VLLM_URL/health" >/dev/null 2>&1; then
   echo "Çalışan Qwen sunucusu yeniden kullanılıyor."
 else
-  nohup "$VLLM_ENV/bin/vllm" serve "$MODEL_ID" \
+  # A separate session keeps the expensive model server alive when only the UI
+  # is interrupted or restarted from a RunPod web terminal.
+  nohup setsid "$VLLM_ENV/bin/vllm" serve "$MODEL_ID" \
     --host 127.0.0.1 \
     --port "$VLLM_PORT" \
     --dtype bfloat16 \
@@ -41,7 +43,7 @@ else
     --gpu-memory-utilization 0.92 \
     --allowed-local-media-path / \
     --limit-mm-per-prompt '{"audio": 8}' \
-    > /workspace/qwen3-vllm.log 2>&1 &
+    </dev/null > /workspace/qwen3-vllm.log 2>&1 &
   VLLM_PID=$!
 
   cleanup_failed_start() {
@@ -77,4 +79,5 @@ else
   trap - EXIT INT TERM
 fi
 
-python app.py
+touch /workspace/qwen3-app.log
+python -u app.py 2>&1 | tee -a /workspace/qwen3-app.log

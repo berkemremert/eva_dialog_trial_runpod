@@ -6,6 +6,7 @@ import os
 import tempfile
 import threading
 import time
+import traceback
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -247,8 +248,23 @@ has_turn_credentials = bool(
         and os.getenv("CLOUDFLARE_TURN_KEY_API_TOKEN")
     )
 )
+
+
+async def logged_turn_credentials():
+    """Expose the complete TURN failure in the Pod log instead of only the UI toast."""
+    print("TURN kimlik bilgileri isteniyor: https://turn.fastrtc.org/credentials", flush=True)
+    try:
+        credentials = await get_cloudflare_turn_credentials_async()
+    except Exception:
+        print("TURN kimlik bilgileri alınamadı. Tam hata:", flush=True)
+        traceback.print_exc()
+        raise
+    print("TURN kimlik bilgileri hazır.", flush=True)
+    return credentials
+
+
 rtc_configuration = (
-    get_cloudflare_turn_credentials_async if has_turn_credentials else None
+    logged_turn_credentials if has_turn_credentials else None
 )
 
 chatbot = gr.Chatbot(label="Konuşma", type="messages", height=420)
