@@ -53,6 +53,8 @@ Never commit your Cartesia key to the repository.
 | `CARTESIA_MODEL` | `sonic-3.6` | Cartesia TTS model |
 | `CARTESIA_VERSION` | `2026-08-14` | Cartesia API version |
 | `MODEL_ID` | `Qwen/Qwen3-Omni-30B-A3B-Instruct` | Qwen model ID or local path |
+| `TENSOR_PARALLEL_SIZE` | `1` | Number of GPUs used by vLLM |
+| `MAX_MODEL_LEN` | `4096` | Maximum conversation context length |
 | `MAX_HISTORY_TURNS` | `4` | Recent voice turns retained for Qwen |
 | `SYSTEM_PROMPT` | built-in Turkish prompt | Assistant persona and behavior |
 | `HF_HOME` | `/workspace/huggingface` | Model cache when using `start.sh` |

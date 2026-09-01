@@ -6,6 +6,8 @@ export PORT="${PORT:-7860}"
 export VLLM_PORT="${VLLM_PORT:-8000}"
 export VLLM_URL="${VLLM_URL:-http://127.0.0.1:${VLLM_PORT}}"
 export MODEL_ID="${MODEL_ID:-Qwen/Qwen3-Omni-30B-A3B-Instruct}"
+export TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
+export MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 VLLM_ENV="${VLLM_ENV:-/workspace/.venvs/qwen3-vllm-0.12.0}"
 
 mkdir -p "$HF_HOME"
@@ -30,11 +32,11 @@ else
     --host 127.0.0.1 \
     --port "$VLLM_PORT" \
     --dtype bfloat16 \
-    --tensor-parallel-size 2 \
+    --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
     --distributed-executor-backend mp \
     --disable-custom-all-reduce \
     --enforce-eager \
-    --max-model-len 8192 \
+    --max-model-len "$MAX_MODEL_LEN" \
     --max-num-seqs 1 \
     --gpu-memory-utilization 0.92 \
     --allowed-local-media-path / \
